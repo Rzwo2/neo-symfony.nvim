@@ -1,13 +1,13 @@
 local M = {}
 
 function M.fetch_translations()
-  local cache = require 'symfony.cache'
+  local cache = require 'neo-symfony.cache'
   local cached = cache.get 'translations'
   if cached then
     return cached
   end
 
-  local symfony = require 'symfony'
+  local symfony = require 'neo-symfony'
   local project_root = symfony.get_project_root()
 
   if not project_root then

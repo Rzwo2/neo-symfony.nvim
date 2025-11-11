@@ -6,7 +6,7 @@ vim.g.loaded_neo_symfony = 1
 -- Auto-setup if in Symfony project
 vim.api.nvim_create_autocmd('VimEnter', {
   callback = function()
-    local utils = require 'symfony.utils'
+    local utils = require 'neo-symfony.utils'
     local config = require('neo-symfony.config').setup {}
     local root = utils.find_symfony_root(config)
 

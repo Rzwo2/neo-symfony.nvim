@@ -1,7 +1,7 @@
 local M = {}
 
 function M.get_completions(ctx)
-  local utils = require 'symfony.utils'
+  local utils = require 'neo-symfony.utils'
   local items = {}
 
   -- Check if we're inside render() or similar
