@@ -1,37 +1,244 @@
 local M = {}
 
+---@class SymfonyConfig
+---@field phpactor_enabled boolean Enable phpactor integration
+---@field telescope_enabled boolean Enable telescope pickers
+---@field symfony_root_patterns table Patterns to detect Symfony projects
+---@field cache_ttl number Cache time-to-live in seconds
+---@field console_env string Symfony environment for console commands
+---@field completion table Completion feature flags
+
+---@type SymfonyConfig
+local default_config = {
+  phpactor_enabled = true,
+  telescope_enabled = true,
+  symfony_root_patterns = {
+    'composer.json',
+    'symfony.lock',
+    'bin/console',
+  },
+  cache_ttl = 300,
+  console_env = 'dev',
+  completion = {
+    services = true,
+    routes = true,
+    templates = true,
+    translations = true,
+    forms = true,
+    doctrine = true,
+  },
+}
+
+---@type SymfonyConfig
 M.config = {}
+
+---@type string|nil
 M.project_root = nil
 
-function M.setup(opts)
-  M.config = require('neo-symfony.config').setup(opts)
-  M.project_root = require('neo-symfony.utils').find_symfony_root(M.config)
+---@type boolean
+M.initialized = false
 
-  if M.project_root then
-    -- Initialize cache
-    require('neo-symfony.cache').init(M.project_root)
+-- Cache system using vim.uv (libuv) for better performance in 0.11+
+local cache = require 'symfony.cache'
+local console = require 'symfony.console'
+local utils = require 'symfony.utils'
 
-    -- Initialize completion
-    require('neo-symfony.completion').setup(M.config, M.project_root)
+---Find Symfony project root using vim.fs (Neovim 0.11+ optimized)
+---@param start_path string Starting path for search
+---@return string|nil root Root path or nil
+local function find_symfony_root(start_path)
+  -- Use vim.fs.root for efficient root detection (Neovim 0.11+)
+  local root = vim.fs.root(start_path or 0, M.config.symfony_root_patterns)
 
-    -- Initialize telescope if enabled
-    if M.config.telescope_enabled then
-      require('neo-symfony.telescope').setup(M.config, M.project_root)
+  if root then
+    -- Verify bin/console exists and is executable
+    local console_path = vim.fs.joinpath(root, 'bin', 'console')
+    local stat = vim.uv.fs_stat(console_path)
+
+    if stat and stat.type == 'file' then
+      -- Check if executable (more robust than vim.fn.executable)
+      local mode = stat.mode
+      if mode and (mode % 2 == 1 or (mode / 8) % 2 == 1 or (mode / 64) % 2 == 1) then
+        return root
+      end
     end
+  end
 
-    vim.notify('neo-neo-symfony.nvim initialized: ' .. M.project_root, vim.log.levels.INFO)
-  else
-    vim.notify('neo-symfony project root not found', vim.log.levels.WARN)
+  return nil
+end
+
+---Setup the plugin
+---@param opts? SymfonyConfig User configuration
+function M.setup(opts)
+  if M.initialized then
+    vim.notify('neo-symfony.nvim is already initialized', vim.log.levels.WARN)
+    return
+  end
+
+  -- Merge user config with defaults using vim.tbl_deep_extend
+  M.config = vim.tbl_deep_extend('force', default_config, opts or {})
+
+  -- Initialize cache system
+  cache.init(M.config.cache_ttl)
+
+  -- Auto-detect Symfony project on startup
+  vim.schedule(function()
+    local cwd = vim.fn.getcwd()
+    M.project_root = find_symfony_root(cwd)
+
+    if M.project_root then
+      vim.notify(string.format('Symfony project detected at: %s', M.project_root), vim.log.levels.INFO)
+
+      -- Pre-warm cache asynchronously
+      console.warmup_cache(M.project_root, M.config)
+    end
+  end)
+
+  -- Setup autocommands for file type detection
+  local augroup = vim.api.nvim_create_augroup('SymfonyNvim', { clear = true })
+
+  vim.api.nvim_create_autocmd('FileType', {
+    group = augroup,
+    pattern = { 'php', 'twig', 'yaml', 'yml' },
+    callback = function(ev)
+      if not M.project_root then
+        local bufname = vim.api.nvim_buf_get_name(ev.buf)
+        M.project_root = find_symfony_root(vim.fs.dirname(bufname))
+      end
+
+      if M.project_root then
+        -- Setup buffer-local keymaps and commands
+        M.setup_buffer(ev.buf)
+      end
+    end,
+  })
+
+  -- Watch for composer.json changes to invalidate cache
+  vim.api.nvim_create_autocmd({ 'BufWritePost' }, {
+    group = augroup,
+    pattern = { 'composer.json', 'config/**/*.yaml', 'config/**/*.yml' },
+    callback = function()
+      if M.project_root then
+        cache.invalidate_all()
+        vim.notify('Symfony cache invalidated', vim.log.levels.INFO)
+      end
+    end,
+  })
+
+  -- Setup user commands
+  M.setup_commands()
+
+  -- Register with blink.cmp if available
+  local ok, blink = pcall(require, 'blink.cmp')
+  if ok then
+    -- blink.cmp v1.0+ integration will be handled by the source module
+    vim.notify('blink.cmp detected - symfony source available', vim.log.levels.INFO)
+  end
+
+  M.initialized = true
+end
+
+---Setup buffer-local functionality
+---@param bufnr number Buffer number
+function M.setup_buffer(bufnr)
+  -- Setup telescope integration if enabled
+  if M.config.telescope_enabled then
+    local ok, telescope = pcall(require, 'telescope')
+    if ok then
+      local pickers = require 'symfony.telescope'
+
+      vim.keymap.set('n', '<leader>ss', pickers.services, {
+        buffer = bufnr,
+        desc = 'Search Symfony Services',
+      })
+
+      vim.keymap.set('n', '<leader>sr', pickers.routes, {
+        buffer = bufnr,
+        desc = 'Search Symfony Routes',
+      })
+
+      vim.keymap.set('n', '<leader>st', pickers.templates, {
+        buffer = bufnr,
+        desc = 'Search Symfony Templates',
+      })
+    end
   end
 end
 
+---Setup user commands
+function M.setup_commands()
+  vim.api.nvim_create_user_command('SymfonyReload', function()
+    if not M.project_root then
+      vim.notify('No Symfony project detected', vim.log.levels.WARN)
+      return
+    end
+
+    cache.invalidate_all()
+    console.warmup_cache(M.project_root, M.config)
+    vim.notify('Symfony cache reloaded', vim.log.levels.INFO)
+  end, {
+    desc = 'Reload Symfony cache',
+  })
+
+  vim.api.nvim_create_user_command('SymfonyServices', function()
+    if not M.project_root then
+      vim.notify('No Symfony project detected', vim.log.levels.WARN)
+      return
+    end
+
+    console.list_services(M.project_root, M.config)
+  end, {
+    desc = 'List all Symfony services',
+  })
+
+  vim.api.nvim_create_user_command('SymfonyRoutes', function()
+    if not M.project_root then
+      vim.notify('No Symfony project detected', vim.log.levels.WARN)
+      return
+    end
+
+    console.list_routes(M.project_root, M.config)
+  end, {
+    desc = 'List all Symfony routes',
+  })
+
+  vim.api.nvim_create_user_command('SymfonyInfo', function()
+    local info = {
+      'neo-symfony.nvim Information',
+      '===========================',
+      '',
+      string.format('Project Root: %s', M.project_root or 'Not detected'),
+      string.format('Console Env: %s', M.config.console_env),
+      string.format('Cache TTL: %d seconds', M.config.cache_ttl),
+      string.format('Phpactor: %s', M.config.phpactor_enabled and 'enabled' or 'disabled'),
+      string.format('Telescope: %s', M.config.telescope_enabled and 'enabled' or 'disabled'),
+      '',
+      'Completion Features:',
+      string.format('  Services: %s', M.config.completion.services and '✓' or '✗'),
+      string.format('  Routes: %s', M.config.completion.routes and '✓' or '✗'),
+      string.format('  Templates: %s', M.config.completion.templates and '✓' or '✗'),
+      string.format('  Translations: %s', M.config.completion.translations and '✓' or '✗'),
+      string.format('  Forms: %s', M.config.completion.forms and '✓' or '✗'),
+      string.format('  Doctrine: %s', M.config.completion.doctrine and '✓' or '✗'),
+    }
+
+    vim.api.nvim_echo({ { table.concat(info, '\n'), 'Normal' } }, true, {})
+  end, {
+    desc = 'Show Symfony plugin information',
+  })
+end
+
+---Get current Symfony project root
+---@return string|nil
 function M.get_project_root()
   return M.project_root
 end
 
-function M.reload()
-  require('neo-symfony.cache').clear()
-  vim.notify('neo-symfony cache cleared', vim.log.levels.INFO)
+---Check if a feature is enabled
+---@param feature string Feature name
+---@return boolean
+function M.is_feature_enabled(feature)
+  return M.config.completion[feature] == true
 end
 
 return M
