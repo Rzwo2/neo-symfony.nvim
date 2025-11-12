@@ -7,6 +7,7 @@ local M = {}
 ---@field cache_ttl number Cache time-to-live in seconds
 ---@field console_env string Symfony environment for console commands
 ---@field completion table Completion feature flags
+---@field blink_cmp table Blink.cmp configuration
 
 ---@type SymfonyConfig
 local default_config = {
@@ -26,6 +27,13 @@ local default_config = {
     translations = true,
     forms = true,
     doctrine = true,
+  },
+  -- Blink.cmp auto-configuration
+  blink_cmp = {
+    enabled = true, -- Auto-configure blink.cmp
+    name = 'symfony',
+    score_offset = 10, -- Priority boost for symfony completions
+    opts = {}, -- Additional blink source options
   },
 }
 
@@ -67,6 +75,62 @@ local function find_symfony_root(start_path)
   return nil
 end
 
+---Auto-configure blink.cmp with symfony source
+local function setup_blink_cmp()
+  if not M.config.blink_cmp.enabled then
+    return
+  end
+
+  -- Check if blink.cmp is available
+  local ok, blink = pcall(require, 'blink.cmp')
+  if not ok then
+    vim.notify('blink.cmp not found. Symfony completion will not be available.', vim.log.levels.WARN)
+    return
+  end
+
+  -- Get current blink config
+  local blink_config = blink.config or {}
+
+  -- Ensure sources table exists
+  if not blink_config.sources then
+    blink_config.sources = {}
+  end
+  if not blink_config.sources.providers then
+    blink_config.sources.providers = {}
+  end
+
+  -- Add symfony source if not already configured
+  if not blink_config.sources.providers.symfony then
+    blink_config.sources.providers.symfony = vim.tbl_deep_extend('force', {
+      name = M.config.blink_cmp.name,
+      module = 'symfony.completion.source',
+      enabled = true,
+      score_offset = M.config.blink_cmp.score_offset,
+    }, M.config.blink_cmp.opts)
+
+    -- Update blink.cmp configuration
+    local update_ok, err = pcall(function()
+      -- Try to update config if blink provides an update method
+      if blink.update_config then
+        blink.update_config(blink_config)
+      elseif blink.setup then
+        -- Fallback: call setup again (this works with most plugins)
+        blink.setup(blink_config)
+      else
+        -- Direct config update
+        blink.config = blink_config
+      end
+    end)
+
+    if update_ok then
+      vim.notify('Symfony source registered with blink.cmp', vim.log.levels.INFO)
+    else
+      vim.notify(string.format('Failed to auto-configure blink.cmp: %s', err), vim.log.levels.WARN)
+      vim.notify('Please manually configure blink.cmp with symfony source', vim.log.levels.INFO)
+    end
+  end
+end
+
 ---Setup the plugin
 ---@param opts? SymfonyConfig User configuration
 function M.setup(opts)
@@ -80,6 +144,12 @@ function M.setup(opts)
 
   -- Initialize cache system
   cache.init(M.config.cache_ttl)
+
+  -- Auto-configure blink.cmp
+  -- Delay slightly to ensure blink.cmp is loaded
+  vim.defer_fn(function()
+    setup_blink_cmp()
+  end, 100)
 
   -- Auto-detect Symfony project on startup
   vim.schedule(function()
@@ -128,13 +198,6 @@ function M.setup(opts)
   -- Setup user commands
   M.setup_commands()
 
-  -- Register with blink.cmp if available
-  local ok, blink = pcall(require, 'blink.cmp')
-  if ok then
-    -- blink.cmp v1.0+ integration will be handled by the source module
-    vim.notify('blink.cmp detected - symfony source available', vim.log.levels.INFO)
-  end
-
   M.initialized = true
 end
 
@@ -147,17 +210,17 @@ function M.setup_buffer(bufnr)
     if ok then
       local pickers = require 'symfony.telescope'
 
-      vim.keymap.set('n', '<leader>ss', pickers.services, {
+      vim.keymap.set('n', '<leader>sS', pickers.services, {
         buffer = bufnr,
         desc = 'Search Symfony Services',
       })
 
-      vim.keymap.set('n', '<leader>sr', pickers.routes, {
+      vim.keymap.set('n', '<leader>sR', pickers.routes, {
         buffer = bufnr,
         desc = 'Search Symfony Routes',
       })
 
-      vim.keymap.set('n', '<leader>st', pickers.templates, {
+      vim.keymap.set('n', '<leader>sT', pickers.templates, {
         buffer = bufnr,
         desc = 'Search Symfony Templates',
       })
@@ -203,6 +266,16 @@ function M.setup_commands()
   })
 
   vim.api.nvim_create_user_command('SymfonyInfo', function()
+    local blink_status = 'not found'
+    local ok, blink = pcall(require, 'blink.cmp')
+    if ok then
+      if blink.config and blink.config.sources and blink.config.sources.providers and blink.config.sources.providers.symfony then
+        blink_status = 'configured'
+      else
+        blink_status = 'found but not configured'
+      end
+    end
+
     local info = {
       'neo-symfony.nvim Information',
       '===========================',
@@ -212,6 +285,7 @@ function M.setup_commands()
       string.format('Cache TTL: %d seconds', M.config.cache_ttl),
       string.format('Phpactor: %s', M.config.phpactor_enabled and 'enabled' or 'disabled'),
       string.format('Telescope: %s', M.config.telescope_enabled and 'enabled' or 'disabled'),
+      string.format('Blink.cmp: %s', blink_status),
       '',
       'Completion Features:',
       string.format('  Services: %s', M.config.completion.services and '✓' or '✗'),
