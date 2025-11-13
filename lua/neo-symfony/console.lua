@@ -265,7 +265,7 @@ end
 ---@param config table Plugin configuration
 function M.warmup_cache(project_root, config)
   vim.schedule(function()
-    local cache = require 'symfony.cache'
+    local cache = require 'neo-symfony.cache'
 
     for feature, enabled in pairs(config.completion) do
       if enabled then

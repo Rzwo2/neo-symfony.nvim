@@ -9,13 +9,13 @@ local actions = require 'telescope.actions'
 local action_state = require 'telescope.actions.state'
 local entry_display = require 'telescope.pickers.entry_display'
 
-local cache = require 'symfony.cache'
-local console = require 'symfony.console'
+local cache = require 'neo-symfony.cache'
+local console = require 'neo-symfony.console'
 
 ---Create a Symfony services picker
 ---@param opts? table Telescope options
 function M.services(opts)
-  local symfony = require 'symfony'
+  local symfony = require 'neo-symfony'
 
   if not symfony.project_root then
     vim.notify('No Symfony project detected', vim.log.levels.WARN)
@@ -117,7 +117,7 @@ end
 ---Create a Symfony routes picker
 ---@param opts? table Telescope options
 function M.routes(opts)
-  local symfony = require 'symfony'
+  local symfony = require 'neo-symfony'
 
   if not symfony.project_root then
     vim.notify('No Symfony project detected', vim.log.levels.WARN)
@@ -219,7 +219,7 @@ end
 ---Create a Symfony templates picker
 ---@param opts? table Telescope options
 function M.templates(opts)
-  local symfony = require 'symfony'
+  local symfony = require 'neo-symfony'
 
   if not symfony.project_root then
     vim.notify('No Symfony project detected', vim.log.levels.WARN)
@@ -258,7 +258,7 @@ function M._show_templates_picker(templates, opts)
         results = templates,
         entry_maker = function(entry)
           local path = entry.path or entry
-          return {
+          returne {
             value = path,
             display = path,
             ordinal = path,

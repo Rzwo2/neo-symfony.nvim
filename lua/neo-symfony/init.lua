@@ -47,9 +47,9 @@ M.project_root = nil
 M.initialized = false
 
 -- Cache system using vim.uv (libuv) for better performance in 0.11+
-local cache = require 'symfony.cache'
-local console = require 'symfony.console'
-local utils = require 'symfony.utils'
+local cache = require 'neo-symfony.cache'
+local console = require 'neo-symfony.console'
+local utils = require 'neo-symfony.utils'
 
 ---Find Symfony project root using vim.fs (Neovim 0.11+ optimized)
 ---@param start_path string Starting path for search
@@ -103,7 +103,7 @@ local function setup_blink_cmp()
   if not blink_config.sources.providers.symfony then
     blink_config.sources.providers.symfony = vim.tbl_deep_extend('force', {
       name = M.config.blink_cmp.name,
-      module = 'symfony.completion.source',
+      module = 'neo-symfony.completion.source',
       enabled = true,
       score_offset = M.config.blink_cmp.score_offset,
     }, M.config.blink_cmp.opts)
@@ -208,7 +208,7 @@ function M.setup_buffer(bufnr)
   if M.config.telescope_enabled then
     local ok, telescope = pcall(require, 'telescope')
     if ok then
-      local pickers = require 'symfony.telescope'
+      local pickers = require 'neo-symfony.telescope'
 
       vim.keymap.set('n', '<leader>sS', pickers.services, {
         buffer = bufnr,

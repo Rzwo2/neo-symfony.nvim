@@ -1,8 +1,8 @@
 local M = {}
 
-local cache = require 'symfony.cache'
-local console = require 'symfony.console'
-local context = require 'symfony.completion.context'
+local cache = require 'neo-symfony.cache'
+local console = require 'neo-symfony.console'
+local context = require 'neo-symfony.completion.context'
 
 ---@class BlinkSource
 ---@field new fun(): BlinkSource
@@ -13,7 +13,7 @@ local context = require 'symfony.completion.context'
 ---Create a new blink.cmp source instance
 ---@return BlinkSource
 function M.new()
-  local symfony = require 'symfony'
+  local symfony = require 'neo-symfony'
 
   return setmetatable({
     ---Get trigger characters for Symfony completion

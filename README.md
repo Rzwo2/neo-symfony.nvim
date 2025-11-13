@@ -155,7 +155,7 @@ If you prefer to configure blink.cmp manually or want more control:
       providers = {
         symfony = {
           name = 'symfony',
-          module = 'symfony.completion.source',
+          module = 'neo-symfony.completion.source',
           enabled = true,
           score_offset = 10,
         },
