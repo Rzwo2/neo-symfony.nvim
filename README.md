@@ -25,22 +25,53 @@ A comprehensive Symfony plugin for Neovim that provides intelligent autocompleti
 
 ## 📦 Installation
 
-### With lazy.nvim (Recommended)
+### Minimal Setup (Zero Configuration)
+
+The absolute minimum - works with all defaults:
+
+```lua
+{ 'rzwo2/neo-symfony.nvim' }
+```
+
+### Recommended Setup (With Dependencies)
 
 ```lua
 {
-  'rzwo/neo-symfony.nvim',
+  'rzwo2/neo-symfony.nvim',
   dependencies = {
-    'saghen/blink.cmp',  -- Required
-    'gbprod/phpactor.nvim',  -- Optional
-    'nvim-telescope/telescope.nvim',  -- Optional
+    'saghen/blink.cmp',  -- Required for completion
+    'gbprod/phpactor.nvim',  -- Optional: PHP intellisense
+    'nvim-telescope/telescope.nvim',  -- Optional: Fuzzy finder
   },
-  ft = { 'php', 'twig', 'yaml' },
+}
+```
+
+### With Custom Configuration
+
+```lua
+{
+  'rzwo2/neo-symfony.nvim',
+  dependencies = {
+    'saghen/blink.cmp',
+    'gbprod/phpactor.nvim',
+    'nvim-telescope/telescope.nvim',
+  },
   opts = {
-    -- All options are optional with sensible defaults
+    -- Override any defaults you want
     console_env = 'dev',
-    cache_ttl = 300,
+    cache_ttl = 600,
   },
+}
+```
+
+### With Lazy Loading (Performance Optimized)
+
+```lua
+{
+  'rzwo2/neo-symfony.nvim',
+  dependencies = { 'saghen/blink.cmp' },
+  ft = { 'php', 'twig', 'yaml' },  -- Load only for these file types
+  opts = {},
 }
 ```
 
@@ -49,6 +80,7 @@ That's it! The plugin will automatically:
 - Configure blink.cmp with the symfony source
 - Set up all completion features
 - Register telescope pickers (if available)
+- Work with sensible defaults
 
 ### Advanced Configuration
 
