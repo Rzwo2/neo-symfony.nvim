@@ -82,52 +82,39 @@ local function setup_blink_cmp()
   end
 
   -- Check if blink.cmp is available
-  local ok, blink = pcall(require, 'blink.cmp')
+  local ok, _ = pcall(require, 'blink.cmp')
   if not ok then
     vim.notify('blink.cmp not found. Symfony completion will not be available.', vim.log.levels.WARN)
     return
   end
 
-  -- Get current blink config
-  local blink_config = blink.config or {}
+  -- Get config module (blink.cmp v1.0+ API)
+  local config_ok, config = pcall(require, 'blink.cmp.config')
+  if not config_ok then
+    vim.notify('blink.cmp.config not found. Plugin may need updating.', vim.log.levels.WARN)
+    return
+  end
 
   -- Ensure sources table exists
-  if not blink_config.sources then
-    blink_config.sources = {}
+  if not config.sources then
+    config.sources = {}
   end
-  if not blink_config.sources.providers then
-    blink_config.sources.providers = {}
+  if not config.sources.providers then
+    config.sources.providers = {}
   end
 
   -- Add symfony source if not already configured
-  if not blink_config.sources.providers.symfony then
-    blink_config.sources.providers.symfony = vim.tbl_deep_extend('force', {
+  if not config.sources.providers.symfony then
+    config.sources.providers.symfony = vim.tbl_deep_extend('force', {
       name = M.config.blink_cmp.name,
       module = 'neo-symfony.completion.source',
       enabled = true,
       score_offset = M.config.blink_cmp.score_offset,
     }, M.config.blink_cmp.opts)
 
-    -- Update blink.cmp configuration
-    local update_ok, err = pcall(function()
-      -- Try to update config if blink provides an update method
-      if blink.update_config then
-        blink.update_config(blink_config)
-      elseif blink.setup then
-        -- Fallback: call setup again (this works with most plugins)
-        blink.setup(blink_config)
-      else
-        -- Direct config update
-        blink.config = blink_config
-      end
-    end)
-
-    if update_ok then
-      vim.notify('Symfony source registered with blink.cmp', vim.log.levels.INFO)
-    else
-      vim.notify(string.format('Failed to auto-configure blink.cmp: %s', err), vim.log.levels.WARN)
-      vim.notify('Please manually configure blink.cmp with symfony source', vim.log.levels.INFO)
-    end
+    vim.notify('Symfony source registered with blink.cmp', vim.log.levels.INFO)
+  else
+    vim.notify('Symfony source already configured in blink.cmp', vim.log.levels.DEBUG)
   end
 end
 
@@ -267,9 +254,11 @@ function M.setup_commands()
 
   vim.api.nvim_create_user_command('SymfonyInfo', function()
     local blink_status = 'not found'
-    local ok, blink = pcall(require, 'blink.cmp')
+    local ok, _ = pcall(require, 'blink.cmp')
     if ok then
-      if blink.config and blink.config.sources and blink.config.sources.providers and blink.config.sources.providers.symfony then
+      -- Use blink.cmp.config (v1.0+ API)
+      local config_ok, config = pcall(require, 'blink.cmp.config')
+      if config_ok and config.sources and config.sources.providers and config.sources.providers.symfony then
         blink_status = 'configured'
       else
         blink_status = 'found but not configured'
