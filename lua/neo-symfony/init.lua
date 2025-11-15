@@ -107,7 +107,7 @@ local function setup_blink_cmp()
   if not config.sources.providers.symfony then
     config.sources.providers.symfony = vim.tbl_deep_extend('force', {
       name = M.config.blink_cmp.name,
-      module = 'neo-symfony.completion.source',
+      module = 'neo-symfony.completion.blink_source',
       enabled = true,
       score_offset = M.config.blink_cmp.score_offset,
     }, M.config.blink_cmp.opts)
