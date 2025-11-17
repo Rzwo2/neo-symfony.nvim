@@ -342,4 +342,30 @@ function M.list_routes(project_root, config)
   end)
 end
 
+---List templates in a buffer
+---@param project_root string Project root path
+function M.list_templates(project_root)
+  M.fetch_templates(project_root, function(templates)
+    if not templates then
+      vim.notify('No routes found', vim.log.levels.WARN)
+      return
+    end
+
+    local lines = { 'Symfony Templates', '==============', '' }
+    for route in pairs(templates) do
+      table.insert(lines, string.format('• %s', route))
+      table.insert(lines, '')
+    end
+
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.bo[buf].modifiable = false
+    vim.bo[buf].buftype = 'nofile'
+    vim.bo[buf].filetype = 'markdown'
+
+    vim.cmd 'split'
+    vim.api.nvim_win_set_buf(0, buf)
+  end)
+end
+
 return M
