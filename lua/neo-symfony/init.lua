@@ -252,11 +252,21 @@ function M.setup_commands()
     desc = 'List all Symfony routes',
   })
 
+  vim.api.nvim_create_user_command('SymfonyTemplates', function()
+    if not M.project_root then
+      vim.notify('No Symfony project detected', vim.log.levels.WARN)
+      return
+    end
+
+    console.list_templates(M.project_root)
+  end, {
+    desc = 'List all Symfony templates',
+  })
+
   vim.api.nvim_create_user_command('SymfonyInfo', function()
     local blink_status = 'not found'
     local ok, _ = pcall(require, 'blink.cmp')
     if ok then
-      -- Use blink.cmp.config (v1.0+ API)
       local config_ok, config = pcall(require, 'blink.cmp.config')
       if config_ok and config.sources and config.sources.providers and config.sources.providers.symfony then
         blink_status = 'configured'
