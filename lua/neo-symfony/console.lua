@@ -155,7 +155,7 @@ end
 ---Fetch templates from filesystem
 ---@param project_root string Project root path
 ---@param callback function Callback with templates data
-function M.fetch_templates(project_root, callback)
+function M.retch_templates(project_root, callback)
   -- Use vim.fs.find for efficient file search (Neovim 0.11+)
   vim.schedule(function()
     local templates_dir = vim.fs.joinpath(project_root, 'templates')
@@ -352,9 +352,8 @@ function M.list_templates(project_root)
     end
 
     local lines = { 'Symfony Templates', '==============', '' }
-    for route in pairs(templates) do
-      table.insert(lines, string.format('• %s', route))
-      table.insert(lines, '')
+    for _, template in pairs(templates) do
+      table.insert(lines, string.format('• %s', template.path))
     end
 
     local buf = vim.api.nvim_create_buf(false, true)
