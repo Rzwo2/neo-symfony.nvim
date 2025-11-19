@@ -1,166 +1,107 @@
--- lua/symfony/cache.lua
--- Efficient caching system using vim.uv timers for Neovim 0.11+
-
 local M = {}
 
----@class CacheEntry
----@field data any Cached data
----@field timestamp number Cache creation time
----@field timer uv.uv_timer_t|nil UV timer handle
+-- Cache storage
+local cache = {
+  templates = {},
+  routes = {},
+  services = {},
+  last_updated = {
+    templates = 0,
+    routes = 0,
+    services = 0,
+  },
+}
 
----@type table<string, CacheEntry>
-local cache_store = {}
+-- Default TTL: 5 minutes (300 seconds)
+local DEFAULT_TTL = 300
 
----@type number Cache TTL in milliseconds
-local cache_ttl = 300000 -- Default 5 minutes
+-- Configuration
+local config = {
+  ttl = DEFAULT_TTL,
+}
 
----@type uv.uv_timer_t|nil Cleanup timer
-local cleanup_timer = nil
-
----Initialize cache system
----@param ttl number Time-to-live in seconds
-function M.init(ttl)
-  cache_ttl = ttl * 1000 -- Convert to milliseconds
-
-  -- Setup periodic cleanup (every minute)
-  if cleanup_timer then
-    cleanup_timer:stop()
-    cleanup_timer:close()
-  end
-
-  cleanup_timer = vim.uv.new_timer()
-  cleanup_timer:start(
-    60000,
-    60000,
-    vim.schedule_wrap(function()
-      M.cleanup_expired()
-    end)
-  )
+--- Setup cache with configuration
+---@param opts table|nil Configuration options with optional 'ttl' field
+function M.setup(opts)
+  config = vim.tbl_extend('force', config, opts or {})
 end
 
----Get cached data
----@param key string Cache key
----@return any|nil Cached data or nil if expired/missing
-function M.get(key)
-  local entry = cache_store[key]
-
-  if not entry then
-    return nil
-  end
-
-  local now = vim.uv.now()
-  local age = now - entry.timestamp
-
-  if age > cache_ttl then
-    -- Expired, clean up
-    M.invalidate(key)
-    return nil
-  end
-
-  return entry.data
+--- Check if cache is valid based on TTL
+---@param cache_type string Type of cache ('templates', 'routes', 'services')
+---@return boolean True if cache is still valid
+local function is_cache_valid(cache_type)
+  local now = os.time()
+  local last_update = cache.last_updated[cache_type] or 0
+  return (now - last_update) < config.ttl
 end
 
----Set cache data with automatic expiration
----@param key string Cache key
----@param data any Data to cache
-function M.set(key, data)
-  -- Cancel existing timer if any
-  if cache_store[key] and cache_store[key].timer then
-    cache_store[key].timer:stop()
-    cache_store[key].timer:close()
+--- Get templates from cache
+---@return string[]|nil Array of template paths, or nil if cache invalid
+function M.get_templates()
+  if is_cache_valid 'templates' and #cache.templates > 0 then
+    return cache.templates
   end
+  return nil
+end
 
-  -- Create expiration timer
-  local timer = vim.uv.new_timer()
-  timer:start(
-    cache_ttl,
-    0,
-    vim.schedule_wrap(function()
-      M.invalidate(key)
-    end)
-  )
+--- Set templates in cache
+---@param templates string[] Array of template paths to cache
+function M.set_templates(templates)
+  cache.templates = templates or {}
+  cache.last_updated.templates = os.time()
+end
 
-  cache_store[key] = {
-    data = data,
-    timestamp = vim.uv.now(),
-    timer = timer,
+--- Get routes from cache
+---@return string[]|nil Array of route names, or nil if cache invalid
+function M.get_routes()
+  if is_cache_valid 'routes' and #cache.routes > 0 then
+    return cache.routes
+  end
+  return nil
+end
+
+--- Set routes in cache
+---@param routes string[] Array of route names to cache
+function M.set_routes(routes)
+  cache.routes = routes or {}
+  cache.last_updated.routes = os.time()
+end
+
+--- Get services from cache
+---@return string[]|nil Array of service IDs, or nil if cache invalid
+function M.get_services()
+  if is_cache_valid 'services' and #cache.services > 0 then
+    return cache.services
+  end
+  return nil
+end
+
+--- Set services in cache
+---@param services string[] Array of service IDs to cache
+function M.set_services(services)
+  cache.services = services or {}
+  cache.last_updated.services = os.time()
+end
+
+--- Clear all cache entries
+function M.clear()
+  cache.templates = {}
+  cache.routes = {}
+  cache.services = {}
+  cache.last_updated = {
+    templates = 0,
+    routes = 0,
+    services = 0,
   }
 end
 
----Invalidate a specific cache entry
----@param key string Cache key
-function M.invalidate(key)
-  local entry = cache_store[key]
-  if entry then
-    if entry.timer then
-      entry.timer:stop()
-      entry.timer:close()
-    end
-    cache_store[key] = nil
+--- Clear specific cache type
+---@param cache_type string Type of cache to clear ('templates', 'routes', 'services')
+function M.clear_type(cache_type)
+  if cache[cache_type] then
+    cache[cache_type] = {}
+    cache.last_updated[cache_type] = 0
   end
-end
-
----Invalidate all cache entries
-function M.invalidate_all()
-  for key, entry in pairs(cache_store) do
-    if entry.timer then
-      entry.timer:stop()
-      entry.timer:close()
-    end
-  end
-  cache_store = {}
-end
-
----Clean up expired entries
-function M.cleanup_expired()
-  local now = vim.uv.now()
-  local expired_keys = {}
-
-  for key, entry in pairs(cache_store) do
-    local age = now - entry.timestamp
-    if age > cache_ttl then
-      table.insert(expired_keys, key)
-    end
-  end
-
-  for _, key in ipairs(expired_keys) do
-    M.invalidate(key)
-  end
-
-  if #expired_keys > 0 then
-    vim.notify(string.format('Cleaned up %d expired cache entries', #expired_keys), vim.log.levels.DEBUG)
-  end
-end
-
----Get cache statistics
----@return table Statistics about cache usage
-function M.stats()
-  local count = 0
-  local total_size = 0
-
-  for _, entry in pairs(cache_store) do
-    count = count + 1
-    -- Approximate size calculation
-    local ok, size = pcall(function()
-      return #vim.json.encode(entry.data)
-    end)
-    if ok then
-      total_size = total_size + size
-    end
-  end
-
-  return {
-    entries = count,
-    size_bytes = total_size,
-    ttl_ms = cache_ttl,
-  }
-end
-
----Check if a key exists in cache (regardless of expiration)
----@param key string Cache key
----@return boolean
-function M.has(key)
-  return cache_store[key] ~= nil
 end
 
 return M

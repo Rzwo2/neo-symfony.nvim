@@ -1,202 +1,263 @@
-local M = {}
+local Source = {}
+Source.__index = Source
 
+local utils = require 'neo-symfony.utils'
 local cache = require 'neo-symfony.cache'
-local console = require 'neo-symfony.console'
-local context = require 'neo-symfony.completion.context'
 
----@class BlinkSource
----@field new fun(): BlinkSource
----@field get_completions fun(self, ctx: table, callback: fun(items: table))
----@field resolve fun(self, item: table, callback: fun(resolved_item: table))
----@field get_trigger_characters fun(self): string[]
-
----Create a new blink.cmp source instance
----@return BlinkSource
-function M.new()
-  local symfony = require 'neo-symfony'
-
-  return setmetatable({
-    ---Get trigger characters for Symfony completion
-    ---@return string[]
-    get_trigger_characters = function()
-      return { "'", '"', '(', '>', ':', '/' }
-    end,
-
-    ---Check if completion should be triggered
-    ---@param ctx table Context from blink.cmp
-    ---@return boolean
-    is_available = function(self, ctx)
-      if not symfony.project_root then
-        return false
-      end
-
-      local filetype = vim.bo[ctx.bufnr].filetype
-      return vim.tbl_contains({ 'php', 'twig', 'yaml', 'yml' }, filetype)
-    end,
-
-    ---Get completions asynchronously
-    ---@param ctx table Completion context from blink.cmp
-    ---@param callback function Callback to return items
-    get_completions = function(self, ctx, callback)
-      if not symfony.project_root then
-        callback { items = {} }
-        return
-      end
-
-      -- Determine completion type based on context
-      local comp_type = context.detect_completion_type(ctx)
-
-      if not comp_type or not symfony.is_feature_enabled(comp_type) then
-        callback { items = {} }
-        return
-      end
-
-      -- Try cache first for performance
-      local cached = cache.get(comp_type)
-      if cached then
-        local items = self:format_items(cached, comp_type, ctx)
-        callback { items = items, is_incomplete = false }
-        return
-      end
-
-      -- Fetch from console asynchronously
-      vim.schedule(function()
-        console.fetch_async(symfony.project_root, comp_type, symfony.config, function(data)
-          if data then
-            cache.set(comp_type, data)
-            local items = self:format_items(data, comp_type, ctx)
-            callback { items = items, is_incomplete = false }
-          else
-            callback { items = {}, is_incomplete = false }
-          end
-        end)
-      end)
-    end,
-
-    ---Format items for blink.cmp
-    ---@param data table Raw data from console
-    ---@param comp_type string Completion type
-    ---@param ctx table Completion context
-    ---@return table[] Formatted completion items
-    format_items = function(self, data, comp_type, ctx)
-      local items = {}
-
-      if comp_type == 'services' then
-        for service_id, service_info in pairs(data) do
-          table.insert(items, {
-            label = service_id,
-            kind = require('blink.cmp.types').CompletionItemKind.Interface,
-            detail = service_info.class or 'Symfony Service',
-            documentation = {
-              kind = 'markdown',
-              value = string.format(
-                '**Service**: `%s`\n\n**Class**: `%s`\n\n**Aliases**: %s',
-                service_id,
-                service_info.class or 'N/A',
-                service_info.aliases and table.concat(service_info.aliases, ', ') or 'None'
-              ),
-            },
-            insertText = service_id,
-            filterText = service_id,
-            sortText = string.format('%03d_%s', service_info.priority or 100, service_id),
-          })
-        end
-      elseif comp_type == 'routes' then
-        for route_name, route_info in pairs(data) do
-          table.insert(items, {
-            label = route_name,
-            kind = require('blink.cmp.types').CompletionItemKind.Function,
-            detail = route_info.path or 'Symfony Route',
-            documentation = {
-              kind = 'markdown',
-              value = string.format(
-                '**Route**: `%s`\n\n**Path**: `%s`\n\n**Methods**: %s\n\n**Controller**: `%s`',
-                route_name,
-                route_info.path or 'N/A',
-                route_info.methods and table.concat(route_info.methods, ', ') or 'ANY',
-                route_info.controller or 'N/A'
-              ),
-            },
-            insertText = route_name,
-            filterText = route_name .. ' ' .. (route_info.path or ''),
-          })
-        end
-      elseif comp_type == 'templates' then
-        for _, template in ipairs(data) do
-          local label = template.path or template
-          table.insert(items, {
-            label = label,
-            kind = require('blink.cmp.types').CompletionItemKind.File,
-            detail = 'Twig Template',
-            documentation = {
-              kind = 'markdown',
-              value = string.format('**Template**: `%s`', label),
-            },
-            insertText = label,
-            filterText = label,
-          })
-        end
-      elseif comp_type == 'translations' then
-        for key, translation in pairs(data) do
-          table.insert(items, {
-            label = key,
-            kind = require('blink.cmp.types').CompletionItemKind.Text,
-            detail = translation.value or 'Translation Key',
-            documentation = {
-              kind = 'markdown',
-              value = string.format('**Key**: `%s`\n\n**Domain**: `%s`\n\n**Value**: %s', key, translation.domain or 'messages', translation.value or 'N/A'),
-            },
-            insertText = key,
-            filterText = key,
-          })
-        end
-      elseif comp_type == 'forms' then
-        for _, form_type in ipairs(data) do
-          table.insert(items, {
-            label = form_type.name or form_type,
-            kind = require('blink.cmp.types').CompletionItemKind.Class,
-            detail = form_type.fqcn or 'Form Type',
-            documentation = {
-              kind = 'markdown',
-              value = string.format('**Form Type**: `%s`\n\n**FQCN**: `%s`', form_type.name or form_type, form_type.fqcn or 'N/A'),
-            },
-            insertText = form_type.name or form_type,
-            filterText = (form_type.name or form_type) .. ' ' .. (form_type.fqcn or ''),
-          })
-        end
-      elseif comp_type == 'doctrine' then
-        for _, entity in ipairs(data) do
-          table.insert(items, {
-            label = entity.short_name or entity.class,
-            kind = require('blink.cmp.types').CompletionItemKind.Class,
-            detail = entity.class or 'Doctrine Entity',
-            documentation = {
-              kind = 'markdown',
-              value = string.format(
-                '**Entity**: `%s`\n\n**Table**: `%s`\n\n**Repository**: `%s`',
-                entity.class or 'N/A',
-                entity.table or 'N/A',
-                entity.repository or 'Default'
-              ),
-            },
-            insertText = entity.class,
-            filterText = (entity.short_name or '') .. ' ' .. (entity.class or ''),
-          })
-        end
-      end
-
-      return items
-    end,
-
-    ---Resolve completion item (lazy loading additional info)
-    ---@param item table Completion item
-    ---@param callback function Callback with resolved item
-    resolve = function(self, item, callback)
-      -- For now, all info is provided during get_completions
-      -- This could be used for lazy loading documentation or additional details
-      callback(item)
-    end,
-  }, { __index = M })
+--- Create a new source instance
+---@return table Source instance
+function Source:new()
+  local o = setmetatable({}, self)
+  return o
 end
 
-return M
+--- Get trigger characters for this source
+--- These characters will trigger completion
+---@return string[] List of trigger characters
+function Source:get_trigger_characters()
+  return { "'", '"', '(', ',' }
+end
+
+--- Check if we're in a context where we should provide completions
+---@param context table Completion context from blink.cmp
+---@return boolean True if in render context
+function Source:is_in_render_context(context)
+  local line = context.line
+  local col = context.cursor[2]
+  local before_cursor = line:sub(1, col)
+
+  -- Try Tree-sitter based detection first (more accurate)
+  local ts_result = self:check_context_with_treesitter(context)
+  if ts_result ~= nil then
+    return ts_result
+  end
+
+  -- Fallback to pattern matching
+  local patterns = {
+    'render%s*%(', -- render(
+    'renderView%s*%(', -- renderView(
+    '->render%s*%(', -- ->render(
+    '->renderView%s*%(', -- ->renderView(
+    'return%s+.*render%s*%(', -- return $this->render(
+  }
+
+  for _, pattern in ipairs(patterns) do
+    if before_cursor:match(pattern) then
+      -- Check if we're inside quotes after the opening parenthesis
+      local after_pattern = before_cursor:match(pattern .. '%s*(.*)$')
+      if after_pattern then
+        -- Count quotes to see if we're inside a string
+        local single_quotes = select(2, after_pattern:gsub("'", ''))
+        local double_quotes = select(2, after_pattern:gsub('"', ''))
+
+        -- If odd number of quotes, we're inside a string
+        if (single_quotes % 2 == 1) or (double_quotes % 2 == 1) then
+          return true
+        end
+      end
+    end
+  end
+
+  return false
+end
+
+--- Use Tree-sitter to check context (more accurate)
+---@param context table Completion context from blink.cmp
+---@return boolean|nil True if in render context, nil if Tree-sitter unavailable
+function Source:check_context_with_treesitter(context)
+  local bufnr = context.bufnr
+  local row = context.cursor[1] - 1 -- Tree-sitter uses 0-indexed rows
+  local col = context.cursor[2]
+
+  -- Check if Tree-sitter parser is available
+  local has_parser, parser = pcall(vim.treesitter.get_parser, bufnr, 'php')
+  if not has_parser then
+    return nil -- Fallback to pattern matching
+  end
+
+  local tree = parser:parse()[1]
+  if not tree then
+    return nil
+  end
+
+  local root = tree:root()
+
+  -- Get node at cursor position
+  local node = root:descendant_for_range(row, col, row, col)
+
+  -- Walk up the tree to find function call
+  while node do
+    local node_type = node:type()
+
+    -- Check if we're in a string node
+    if node_type == 'string' or node_type == 'string_value' or node_type == 'encapsed_string' then
+      -- Check parent to see if it's a function call argument
+      local parent = node:parent()
+      while parent do
+        if parent:type() == 'function_call_expression' or parent:type() == 'member_call_expression' then
+          -- Get function name
+          local name_node = parent:field('function')[1] or parent:field('name')[1]
+          if name_node then
+            local func_name = vim.treesitter.get_node_text(name_node, bufnr)
+            -- Check if it's render or renderView
+            if func_name:match 'render' or func_name:match 'renderView' then
+              return true
+            end
+          end
+        end
+        parent = parent:parent()
+      end
+    end
+
+    node = node:parent()
+  end
+
+  return false
+end
+
+--- Check if we're in a Twig template context
+---@param context table Completion context from blink.cmp
+---@return boolean True if in Twig template context
+function Source:is_in_twig_context(context)
+  local line = context.line
+  local col = context.cursor[2]
+  local before_cursor = line:sub(1, col)
+
+  -- Twig patterns for templates
+  local patterns = {
+    '{%%s*include%s+', -- {% include '
+    '{%%s*extends%s+', -- {% extends '
+    '{%%s*embed%s+', -- {% embed '
+    '{{%s*include%s*%(', -- {{ include('
+  }
+
+  for _, pattern in ipairs(patterns) do
+    if before_cursor:match(pattern) then
+      local after_pattern = before_cursor:match(pattern .. '%s*(.*)$')
+      if after_pattern then
+        local single_quotes = select(2, after_pattern:gsub("'", ''))
+        local double_quotes = select(2, after_pattern:gsub('"', ''))
+        if (single_quotes % 2 == 1) or (double_quotes % 2 == 1) then
+          return true
+        end
+      end
+    end
+  end
+
+  return false
+end
+
+--- Check if we should provide completions based on filetype and context
+---@param context table Completion context from blink.cmp
+---@return boolean True if completions should be provided
+function Source:should_provide_completions(context)
+  local bufnr = context.bufnr
+  local filetype = vim.bo[bufnr].filetype
+
+  -- Check filetype
+  if filetype == 'php' then
+    return self:is_in_render_context(context)
+  elseif filetype == 'twig' or filetype == 'html.twig' then
+    return self:is_in_twig_context(context)
+  end
+
+  return false
+end
+
+--- Extract the partial input that user has typed
+---@param context table Completion context from blink.cmp
+---@return string Partial filter text typed by user
+function Source:get_filter_text(context)
+  local line = context.line
+  local col = context.cursor[2]
+  local before_cursor = line:sub(1, col)
+
+  -- Find the last quote and extract text after it
+  local quote_pos = before_cursor:match '.*[\'"]()' or 0
+  if quote_pos > 0 then
+    return before_cursor:sub(quote_pos)
+  end
+
+  return ''
+end
+
+--- Main function: Get completions
+---@param context table Completion context from blink.cmp
+---@param callback function Callback to invoke with completion items
+function Source:get_completions(context, callback)
+  -- Check if we should provide completions
+  if not self:should_provide_completions(context) then
+    callback { items = {} }
+    return
+  end
+
+  -- Get filter text (what user has typed so far)
+  local filter_text = self:get_filter_text(context)
+
+  -- Async operation to get templates
+  vim.schedule(function()
+    local templates = cache.get_templates()
+
+    if not templates or #templates == 0 then
+      -- Fetch templates if cache is empty
+      utils.fetch_templates(function(fetched_templates)
+        if fetched_templates then
+          cache.set_templates(fetched_templates)
+          local items = self:format_completion_items(fetched_templates, filter_text)
+          callback { items = items }
+        else
+          callback { items = {} }
+        end
+      end)
+    else
+      local items = self:format_completion_items(templates, filter_text)
+      callback { items = items }
+    end
+  end)
+end
+
+--- Format templates into blink.cmp completion items
+---@param templates string[] List of template paths
+---@param filter_text string Current filter text for matching
+---@return table[] List of completion items
+function Source:format_completion_items(templates, filter_text)
+  local items = {}
+
+  for _, template in ipairs(templates) do
+    -- Simple prefix matching
+    if filter_text == '' or template:lower():find(filter_text:lower(), 1, true) then
+      table.insert(items, {
+        label = template,
+        kind = vim.lsp.protocol.CompletionItemKind.File,
+        insertText = template,
+        filterText = template,
+        documentation = {
+          kind = 'markdown',
+          value = '**Symfony Template**\n\n`' .. template .. '`',
+        },
+        -- Optional: Add sorting priority
+        sortText = template,
+      })
+    end
+  end
+
+  return items
+end
+
+--- Optional: Resolve additional details for a completion item
+---@param item table Completion item to resolve
+---@param callback function Callback to invoke with resolved item
+function Source:resolve(item, callback)
+  -- Can add more details here if needed
+  callback(item)
+end
+
+--- Optional: Execute action after completion is accepted
+---@param item table Completion item that was accepted
+---@param callback function Callback to invoke after execution
+function Source:execute(item, callback)
+  -- Can perform actions after item is selected
+  callback()
+end
+
+return Source

@@ -1,294 +1,184 @@
 local M = {}
 
----Check if a file exists
----@param path string File path
----@return boolean
-function M.file_exists(path)
-  local stat = vim.uv.fs_stat(path)
-  return stat ~= nil and stat.type == 'file'
-end
+--- Find Symfony project root by searching for common Symfony markers
+---@return string|nil Absolute path to Symfony root, or nil if not found
+function M.find_symfony_root()
+  local patterns = { 'composer.json', 'symfony.lock', 'bin/console' }
 
----Check if a directory exists
----@param path string Directory path
----@return boolean
-function M.dir_exists(path)
-  local stat = vim.uv.fs_stat(path)
-  return stat ~= nil and stat.type == 'directory'
-end
+  -- Get current working directory
+  local cwd = vim.uv.cwd()
 
----Read file contents
----@param path string File path
----@return string|nil Content or nil on error
-function M.read_file(path)
-  local fd = vim.uv.fs_open(path, 'r', 438) -- 438 = 0666
-  if not fd then
-    return nil
-  end
-
-  local stat = vim.uv.fs_fstat(fd)
-  if not stat then
-    vim.uv.fs_close(fd)
-    return nil
-  end
-
-  local data = vim.uv.fs_read(fd, stat.size, 0)
-  vim.uv.fs_close(fd)
-
-  return data
-end
-
----Debounce function calls
----@param fn function Function to debounce
----@param ms number Delay in milliseconds
----@return function Debounced function
-function M.debounce(fn, ms)
-  local timer = vim.uv.new_timer()
-  local wrapped_fn
-
-  wrapped_fn = function(...)
-    local argv = { ... }
-    timer:start(ms, 0, function()
-      timer:stop()
-      vim.schedule_wrap(fn)(unpack(argv))
-    end)
-  end
-
-  return wrapped_fn, timer
-end
-
----Throttle function calls
----@param fn function Function to throttle
----@param ms number Minimum interval in milliseconds
----@return function Throttled function
-function M.throttle(fn, ms)
-  local timer = vim.uv.new_timer()
-  local running = false
-
-  return function(...)
-    if not running then
-      running = true
-      timer:start(ms, 0, function()
-        running = false
-      end)
-      return fn(...)
-    end
-  end
-end
-
----Deep merge two tables
----@param t1 table First table
----@param t2 table Second table
----@return table Merged table
-function M.deep_merge(t1, t2)
-  return vim.tbl_deep_extend('force', t1, t2)
-end
-
----Check if table is empty
----@param t table Table to check
----@return boolean
-function M.is_empty(t)
-  return next(t) == nil
-end
-
----Get table keys
----@param t table Input table
----@return table Array of keys
-function M.keys(t)
-  local keys = {}
-  for k, _ in pairs(t) do
-    table.insert(keys, k)
-  end
-  return keys
-end
-
----Get table values
----@param t table Input table
----@return table Array of values
-function M.values(t)
-  local values = {}
-  for _, v in pairs(t) do
-    table.insert(values, v)
-  end
-  return values
-end
-
----Filter table by predicate
----@param t table Input table
----@param predicate function Filter function
----@return table Filtered table
-function M.filter(t, predicate)
-  local result = {}
-  for k, v in pairs(t) do
-    if predicate(v, k) then
-      result[k] = v
-    end
-  end
-  return result
-end
-
----Map table values
----@param t table Input table
----@param mapper function Map function
----@return table Mapped table
-function M.map(t, mapper)
-  local result = {}
-  for k, v in pairs(t) do
-    result[k] = mapper(v, k)
-  end
-  return result
-end
-
----Find value in table
----@param t table Input table
----@param predicate function Predicate function
----@return any|nil Found value or nil
-function M.find(t, predicate)
-  for k, v in pairs(t) do
-    if predicate(v, k) then
-      return v
-    end
-  end
-  return nil
-end
-
----Check if string starts with prefix
----@param str string Input string
----@param prefix string Prefix to check
----@return boolean
-function M.starts_with(str, prefix)
-  return str:sub(1, #prefix) == prefix
-end
-
----Check if string ends with suffix
----@param str string Input string
----@param suffix string Suffix to check
----@return boolean
-function M.ends_with(str, suffix)
-  return str:sub(-#suffix) == suffix
-end
-
----Split string by delimiter
----@param str string Input string
----@param delimiter string Delimiter
----@return table Array of parts
-function M.split(str, delimiter)
-  local result = {}
-  local pattern = string.format('([^%s]+)', delimiter)
-
-  for match in str:gmatch(pattern) do
-    table.insert(result, match)
-  end
-
-  return result
-end
-
----Trim whitespace from string
----@param str string Input string
----@return string Trimmed string
-function M.trim(str)
-  return str:match '^%s*(.-)%s*$'
-end
-
----Create a weak table (for caching)
----@param mode? string Weakness mode ('k', 'v', or 'kv')
----@return table Weak table
-function M.weak_table(mode)
-  return setmetatable({}, { __mode = mode or 'v' })
-end
-
----Safely call a function and return result or error
----@param fn function Function to call
----@param ... any Function arguments
----@return boolean, any Success status and result/error
-function M.safe_call(fn, ...)
-  return pcall(fn, ...)
-end
-
----Execute function with timeout
----@param fn function Function to execute
----@param timeout number Timeout in milliseconds
----@param callback function Callback(success, result)
-function M.with_timeout(fn, timeout, callback)
-  local timer = vim.uv.new_timer()
-  local completed = false
-
-  -- Start timeout
-  timer:start(
-    timeout,
-    0,
-    vim.schedule_wrap(function()
-      if not completed then
-        completed = true
-        timer:close()
-        callback(false, 'Timeout exceeded')
+  --- Search ancestor directories for Symfony markers
+  ---@param path string Directory path to search from
+  ---@return string|nil Symfony root path or nil
+  local function search_ancestor(path)
+    for _, pattern in ipairs(patterns) do
+      local filepath = path .. '/' .. pattern
+      local stat = vim.uv.fs_stat(filepath)
+      if stat then
+        return path
       end
-    end)
-  )
+    end
 
-  -- Execute function
-  vim.schedule(function()
-    local ok, result = pcall(fn)
-    if not completed then
-      completed = true
-      timer:stop()
-      timer:close()
-      callback(ok, result)
+    -- Get parent directory
+    local parent = vim.fs.dirname(path)
+    if parent == path then
+      return nil -- Reached root
+    end
+
+    return search_ancestor(parent)
+  end
+
+  return search_ancestor(cwd)
+end
+
+--- Execute Symfony console command asynchronously
+---@param args string Console command arguments (e.g., "debug:router --format=json")
+---@param callback function Callback function that receives the output or nil on error
+function M.execute_console_command(args, callback)
+  local root = M.find_symfony_root()
+  if not root then
+    vim.notify('Symfony project not found', vim.log.levels.ERROR)
+    callback(nil)
+    return
+  end
+
+  local console = root .. '/bin/console'
+
+  -- Check if console exists
+  local stat = vim.uv.fs_stat(console)
+  if not stat then
+    vim.notify('bin/console not found', vim.log.levels.ERROR)
+    callback(nil)
+    return
+  end
+
+  -- Build command
+  local cmd = { 'php', console }
+  -- Split args string into table
+  for arg in args:gmatch '%S+' do
+    table.insert(cmd, arg)
+  end
+
+  -- Execute async with vim.system (Neovim 0.10+)
+  vim.system(cmd, {
+    cwd = root,
+    text = true,
+  }, function(result)
+    if result.code == 0 then
+      callback(result.stdout)
+    else
+      if result.stderr and result.stderr ~= '' then
+        vim.schedule(function()
+          vim.notify('Console error: ' .. result.stderr, vim.log.levels.WARN)
+        end)
+      end
+      callback(nil)
     end
   end)
 end
 
----Get relative path from base to target
----@param base string Base path
----@param target string Target path
----@return string Relative path
-function M.relative_path(base, target)
-  -- Normalize paths
-  base = vim.fs.normalize(base)
-  target = vim.fs.normalize(target)
+--- Fetch templates from Symfony project
+---@param callback function Callback that receives array of template paths
+function M.fetch_templates(callback)
+  -- Try multiple approaches to find templates
 
-  -- If target starts with base, return relative part
-  if M.starts_with(target, base) then
-    local rel = target:sub(#base + 2) -- +2 to skip trailing slash
-    return rel
-  end
+  -- Approach 1: Use debug:container to find Twig paths
+  M.execute_console_command('debug:config twig --format=json', function(output)
+    if output then
+      local success, config = pcall(vim.json.decode, output)
+      if success and config and config.paths then
+        local templates = M.scan_template_directories(config.paths)
+        callback(templates)
+        return
+      end
+    end
 
-  return target
+    -- Approach 2: Scan common template directories
+    local root = M.find_symfony_root()
+    if root then
+      local default_paths = {
+        root .. '/templates',
+        root .. '/app/Resources/views',
+      }
+      local templates = M.scan_template_directories(default_paths)
+      callback(templates)
+    else
+      callback {}
+    end
+  end)
 end
 
----Format file size in human-readable format
----@param bytes number File size in bytes
----@return string Formatted size
-function M.format_size(bytes)
-  local units = { 'B', 'KB', 'MB', 'GB', 'TB' }
-  local unit_index = 1
-  local size = bytes
+--- Scan directories for template files recursively
+---@param paths string[] Array of directory paths to scan
+---@return string[] Array of relative template paths
+function M.scan_template_directories(paths)
+  local templates = {}
 
-  while size >= 1024 and unit_index < #units do
-    size = size / 1024
-    unit_index = unit_index + 1
+  for _, path in ipairs(paths) do
+    local stat = vim.uv.fs_stat(path)
+    if stat and stat.type == 'directory' then
+      -- Use vim.fs.find to recursively find template files (Neovim 0.11+)
+      local files = vim.fs.find(function(name)
+        return name:match '%.twig$' or name:match '%.html%.twig$'
+      end, {
+        path = path,
+        type = 'file',
+        limit = math.huge,
+      })
+
+      for _, file in ipairs(files) do
+        -- Convert absolute path to relative template name
+        local template_name = file:gsub(path .. '/', '')
+        table.insert(templates, template_name)
+      end
+    end
   end
 
-  return string.format('%.2f %s', size, units[unit_index])
+  return templates
 end
 
----Create a simple logger
----@param name string Logger name
----@return table Logger instance
-function M.create_logger(name)
-  return {
-    debug = function(msg, ...)
-      vim.notify(string.format('[%s] ' .. msg, name, ...), vim.log.levels.DEBUG)
-    end,
-    info = function(msg, ...)
-      vim.notify(string.format('[%s] ' .. msg, name, ...), vim.log.levels.INFO)
-    end,
-    warn = function(msg, ...)
-      vim.notify(string.format('[%s] ' .. msg, name, ...), vim.log.levels.WARN)
-    end,
-    error = function(msg, ...)
-      vim.notify(string.format('[%s] ' .. msg, name, ...), vim.log.levels.ERROR)
-    end,
-  }
+--- Fetch routes from Symfony project
+---@param callback function Callback that receives array of route names
+function M.fetch_routes(callback)
+  M.execute_console_command('debug:router --format=json', function(output)
+    if output then
+      local success, routes = pcall(vim.json.decode, output)
+      if success and routes then
+        local route_list = {}
+        for name, _ in pairs(routes) do
+          table.insert(route_list, name)
+        end
+        callback(route_list)
+        return
+      end
+    end
+    callback {}
+  end)
+end
+
+--- Fetch services from Symfony container
+---@param callback function Callback that receives array of service IDs
+function M.fetch_services(callback)
+  M.execute_console_command('debug:container --format=json', function(output)
+    if output then
+      local success, data = pcall(vim.json.decode, output)
+      if success and data then
+        local services = {}
+        -- Extract service IDs from container dump
+        if type(data) == 'table' then
+          for key, _ in pairs(data) do
+            if type(key) == 'string' then
+              table.insert(services, key)
+            end
+          end
+        end
+        callback(services)
+        return
+      end
+    end
+    callback {}
+  end)
 end
 
 return M
