@@ -1,106 +1,74 @@
+-- Two-layer cache:
+--   1. In-process table (instant, lost on restart)
+--   2. Disk JSON in .cache/neo-symfony/ (survives restarts, invalidated by var/cache/dev mtime)
 local M = {}
 
--- Cache storage
-local cache = {
-  templates = {},
-  routes = {},
-  services = {},
-  last_updated = {
-    templates = 0,
-    routes = 0,
-    services = 0,
-  },
-}
+local mem = {}
 
--- Default TTL: 5 minutes (300 seconds)
-local DEFAULT_TTL = 300
+-- ── Disk layer ────────────────────────────────────────────────────────────────
 
--- Configuration
-local config = {
-  ttl = DEFAULT_TTL,
-}
-
---- Setup cache with configuration
----@param opts table|nil Configuration options with optional 'ttl' field
-function M.setup(opts)
-  config = vim.tbl_extend('force', config, opts or {})
+local function disk_path(root, key)
+  return root .. '/.cache/neo-symfony/' .. key .. '.json'
 end
 
---- Check if cache is valid based on TTL
----@param cache_type string Type of cache ('templates', 'routes', 'services')
----@return boolean True if cache is still valid
-local function is_cache_valid(cache_type)
-  local now = os.time()
-  local last_update = cache.last_updated[cache_type] or 0
-  return (now - last_update) < config.ttl
+local function disk_read(root, key)
+  local file = io.open(disk_path(root, key), 'r')
+  if not file then return nil end
+  local raw = file:read('*a')
+  file:close()
+  local ok, data = pcall(vim.json.decode, raw)
+  return ok and data or nil
 end
 
---- Get templates from cache
----@return string[]|nil Array of template paths, or nil if cache invalid
-function M.get_templates()
-  if is_cache_valid 'templates' and #cache.templates > 0 then
-    return cache.templates
+local function disk_write(root, key, data)
+  vim.fn.mkdir(root .. '/.cache/neo-symfony', 'p')
+  local file = io.open(disk_path(root, key), 'w')
+  if not file then return end
+  file:write(vim.json.encode(data))
+  file:close()
+end
+
+-- Returns true when var/cache/dev is newer than our disk cache file.
+local function disk_stale(root, key)
+  local cache_mtime = vim.fn.getftime(disk_path(root, key))
+  if cache_mtime == -1 then return true end
+  local source_mtime = vim.fn.getftime(root .. '/var/cache/dev')
+  return source_mtime > cache_mtime
+end
+
+-- ── Public API ────────────────────────────────────────────────────────────────
+
+-- root is required for disk-backed keys; omit for TTL-only in-memory entries.
+function M.get(key, root)
+  if mem[key] then return mem[key] end
+  if root then
+    if not disk_stale(root, key) then
+      local data = disk_read(root, key)
+      if data then
+        mem[key] = data
+        return data
+      end
+    end
   end
   return nil
 end
 
---- Set templates in cache
----@param templates string[] Array of template paths to cache
-function M.set_templates(templates)
-  cache.templates = templates or {}
-  cache.last_updated.templates = os.time()
+function M.set(key, data, root)
+  mem[key] = data
+  if root then disk_write(root, key, data) end
 end
 
---- Get routes from cache
----@return string[]|nil Array of route names, or nil if cache invalid
-function M.get_routes()
-  if is_cache_valid 'routes' and #cache.routes > 0 then
-    return cache.routes
-  end
-  return nil
+function M.invalidate(key, root)
+  mem[key] = nil
+  if root then vim.fn.delete(disk_path(root, key)) end
 end
 
---- Set routes in cache
----@param routes string[] Array of route names to cache
-function M.set_routes(routes)
-  cache.routes = routes or {}
-  cache.last_updated.routes = os.time()
-end
-
---- Get services from cache
----@return string[]|nil Array of service IDs, or nil if cache invalid
-function M.get_services()
-  if is_cache_valid 'services' and #cache.services > 0 then
-    return cache.services
-  end
-  return nil
-end
-
---- Set services in cache
----@param services string[] Array of service IDs to cache
-function M.set_services(services)
-  cache.services = services or {}
-  cache.last_updated.services = os.time()
-end
-
---- Clear all cache entries
-function M.clear()
-  cache.templates = {}
-  cache.routes = {}
-  cache.services = {}
-  cache.last_updated = {
-    templates = 0,
-    routes = 0,
-    services = 0,
-  }
-end
-
---- Clear specific cache type
----@param cache_type string Type of cache to clear ('templates', 'routes', 'services')
-function M.clear_type(cache_type)
-  if cache[cache_type] then
-    cache[cache_type] = {}
-    cache.last_updated[cache_type] = 0
+function M.clear(root)
+  mem = {}
+  if root then
+    for _, key in ipairs({ 'container', 'routes', 'commands', 'events', 'services', 'templates', 'translations' }) do
+      vim.fn.delete(disk_path(root, key))
+    end
   end
 end
 

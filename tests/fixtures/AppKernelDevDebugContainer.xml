@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<container xmlns="http://symfony.com/schema/dic/services"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:schemaLocation="http://symfony.com/schema/dic/services https://symfony.com/schema/dic/services/services-1.0.xsd">
+  <services>
+    <service id="App\Service\UserService" class="App\Service\UserService" public="true">
+      <tag name="kernel.event_listener" event="kernel.request" method="onKernelRequest"/>
+      <tag name="monolog.logger" channel="app"/>
+    </service>
+    <service id="App\Repository\UserRepository" class="App\Repository\UserRepository" public="false">
+      <tag name="doctrine.repository_service"/>
+    </service>
+    <service id="App\Controller\UserController" class="App\Controller\UserController" public="true">
+      <tag name="controller.service_arguments"/>
+    </service>
+    <service id="App\Service\MailerService" class="App\Service\MailerService" public="false">
+    </service>
+    <service id="App\EventListener\SecurityListener" class="App\EventListener\SecurityListener" public="false">
+      <tag name="kernel.event_listener" event="security.interactive_login" method="onLogin"/>
+    </service>
+    <service id="App\Form\RegistrationFormType" class="App\Form\RegistrationFormType" public="false">
+      <tag name="form.type"/>
+    </service>
+    <service id="App\Command\SendNotificationsCommand" class="App\Command\SendNotificationsCommand" public="true">
+      <tag name="console.command" command="app:send-notifications"/>
+    </service>
+    <service id="Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorageInterface" class="Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorage" public="true">
+    </service>
+    <service id="Symfony\Component\HttpFoundation\RequestStack" class="Symfony\Component\HttpFoundation\RequestStack" public="true">
+    </service>
+    <service id="Doctrine\ORM\EntityManagerInterface" class="Doctrine\ORM\EntityManager" public="true">
+    </service>
+    <service id="App\Service\CacheWarmer" class="App\Service\CacheWarmer" public="false">
+      <tag name="kernel.cache_warmer" priority="100"/>
+    </service>
+    <service id="App\Twig\AppExtension" class="App\Twig\AppExtension" public="false">
+      <tag name="twig.extension"/>
+    </service>
+    <service id="App\MessageHandler\ProcessOrderHandler" class="App\MessageHandler\ProcessOrderHandler" public="false">
+      <tag name="messenger.message_handler" bus="messenger.bus.default"/>
+    </service>
+    <service id="App\Security\AccessDeniedHandler" class="App\Security\AccessDeniedHandler" public="false">
+    </service>
+    <service id="App\Service\FileUploader" class="App\Service\FileUploader" public="false">
+    </service>
+    <service id="App\DataFixtures\AppFixtures" class="App\DataFixtures\AppFixtures" public="false">
+      <tag name="doctrine.fixture.orm"/>
+    </service>
+    <service id="App\EventSubscriber\LocaleSubscriber" class="App\EventSubscriber\LocaleSubscriber" public="false">
+      <tag name="kernel.event_subscriber"/>
+    </service>
+    <service id="App\Validator\UniqueEmailValidator" class="App\Validator\UniqueEmailValidator" public="false">
+      <tag name="validator.constraint_validator" alias="App\Validator\UniqueEmail"/>
+    </service>
+    <service id="App\Service\PaginatorService" class="App\Service\PaginatorService" public="false">
+    </service>
+    <service id="App\Menu\MenuBuilder" class="App\Menu\MenuBuilder" public="false">
+      <tag name="knp_menu.menu_builder" method="createMainMenu" alias="main"/>
+    </service>
+  </services>
+</container>

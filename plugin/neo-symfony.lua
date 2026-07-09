@@ -3,8 +3,8 @@ if vim.g.loaded_neo_symfony then
 end
 vim.g.loaded_neo_symfony = 1
 
-if vim.fn.has 'nvim-0.11' ~= 1 then
-  vim.notify('neo-symfony.nvim requires Neovim >= 0.11.0', vim.log.levels.ERROR)
+if vim.fn.has 'nvim-0.12' ~= 1 then
+  vim.notify('neo-symfony.nvim requires Neovim >= 0.12', vim.log.levels.ERROR)
   return
 end
 
